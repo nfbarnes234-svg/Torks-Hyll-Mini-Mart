@@ -1,0 +1,156 @@
+CREATE DATABASE IF NOT EXISTS `torkshyll` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `torkshyll`;
+
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS audit_logs, login_attempts, payments, sale_items, sales, stock_movements, products, categories, customers, users, settings, invoice_counters;
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE settings (
+  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+  business_name VARCHAR(120) NOT NULL DEFAULT 'Torks & Hyll',
+  address VARCHAR(255) NOT NULL DEFAULT '',
+  phone VARCHAR(40) NOT NULL DEFAULT '',
+  email VARCHAR(160) NOT NULL DEFAULT '',
+  tin VARCHAR(80) NOT NULL DEFAULT '',
+  vat_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  vat_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+  stock_override_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  receipt_header VARCHAR(255) NOT NULL DEFAULT '',
+  receipt_footer VARCHAR(255) NOT NULL DEFAULT 'Thank you for shopping with us.',
+  currency CHAR(3) NOT NULL DEFAULT 'GHS',
+  timezone VARCHAR(60) NOT NULL DEFAULT 'Africa/Accra',
+  logo_path VARCHAR(255) NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE users (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  employee_id VARCHAR(40) NOT NULL UNIQUE,
+  first_name VARCHAR(80) NOT NULL,
+  last_name VARCHAR(80) NOT NULL,
+  email VARCHAR(160) NOT NULL UNIQUE,
+  phone VARCHAR(40) NOT NULL DEFAULT '',
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('manager','cashier') NOT NULL DEFAULT 'cashier',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  last_login_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE categories (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE products (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sku VARCHAR(80) NOT NULL UNIQUE,
+  barcode VARCHAR(80) NULL,
+  name VARCHAR(180) NOT NULL,
+  description TEXT NULL,
+  category_id INT UNSIGNED NULL,
+  purchase_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  selling_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  current_stock DECIMAL(12,3) NOT NULL DEFAULT 0,
+  minimum_stock DECIMAL(12,3) NOT NULL DEFAULT 0,
+  unit VARCHAR(30) NOT NULL DEFAULT 'pcs',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_products_barcode (barcode),
+  INDEX idx_products_name (name),
+  CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE stock_movements (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  type ENUM('opening','sale','adjustment','import') NOT NULL,
+  qty DECIMAL(12,3) NOT NULL,
+  stock_before DECIMAL(12,3) NOT NULL,
+  stock_after DECIMAL(12,3) NOT NULL,
+  reason VARCHAR(255) NOT NULL DEFAULT '',
+  reference VARCHAR(100) NOT NULL DEFAULT '',
+  user_id INT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_movements_product (product_id),
+  CONSTRAINT fk_movements_product FOREIGN KEY (product_id) REFERENCES products(id),
+  CONSTRAINT fk_movements_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE customers (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(160) NOT NULL,
+  phone VARCHAR(40) NOT NULL DEFAULT '',
+  email VARCHAR(160) NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE sales (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  invoice_number VARCHAR(40) NOT NULL UNIQUE,
+  cashier_id INT UNSIGNED NOT NULL,
+  customer_id INT UNSIGNED NULL,
+  subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+  discount_total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  tax_total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  grand_total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+  change_due DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status ENUM('completed','voided') NOT NULL DEFAULT 'completed',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_sales_created (created_at),
+  INDEX idx_sales_cashier (cashier_id),
+  CONSTRAINT fk_sales_cashier FOREIGN KEY (cashier_id) REFERENCES users(id),
+  CONSTRAINT fk_sales_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE sale_items (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sale_id BIGINT UNSIGNED NOT NULL,
+  product_id INT UNSIGNED NOT NULL,
+  name_snapshot VARCHAR(180) NOT NULL,
+  sku_snapshot VARCHAR(80) NOT NULL,
+  qty DECIMAL(12,3) NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  discount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  tax DECIMAL(12,2) NOT NULL DEFAULT 0,
+  line_total DECIMAL(12,2) NOT NULL DEFAULT 0,
+  CONSTRAINT fk_sale_items_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sale_items_product FOREIGN KEY (product_id) REFERENCES products(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE payments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sale_id BIGINT UNSIGNED NOT NULL,
+  method ENUM('cash','mobile_money','card') NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  reference VARCHAR(120) NOT NULL DEFAULT '',
+  CONSTRAINT fk_payments_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE audit_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NULL,
+  action VARCHAR(80) NOT NULL,
+  entity VARCHAR(80) NOT NULL,
+  entity_id BIGINT UNSIGNED NULL,
+  ip VARCHAR(45) NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_created (created_at),
+  CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE login_attempts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(160) NOT NULL,
+  ip VARCHAR(45) NOT NULL DEFAULT '',
+  attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_login_email_time (email, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE invoice_counters (
+  invoice_date DATE NOT NULL PRIMARY KEY,
+  last_number INT UNSIGNED NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
